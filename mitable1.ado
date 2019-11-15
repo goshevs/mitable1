@@ -46,7 +46,101 @@ mi impute chained ///
 	(logit, conditional(if smokes==1)) hightar ///
     (logit) smokes = attack hsgrad female, add(2)
 
+
+
+capture program drop mitable1
+program define mitable1, rclass
 	
+	syntax anything [, by(varname) ] 
+	
+	*** Parse the input and post to sreturn
+	_inputParser `"`anything'"'
+	
+	*** Retrieve varname, vartype and varformat
+	foreach varname in `:s(macros)' {
+		
+		di _n "VARIABLE: `varname'"
+		
+		local properties "`s(`varname')'"
+		gettoken vartype varformat: properties, parse(" ")
+		local varformat = trim("`varformat'")
+		
+		if "`vartype'" == "Contn" {
+			if "`by'" == "" {
+				qui mi estimate: regress `varname' // take mean from here
+				                                   // test for ~= 0 
+			}
+			else {
+				mi estimate: regress `varname' i.`by'  // take test of difference from here
+				mi estimate, cmdok: _tab1eMargins, mod(`e(cmdline_mi)') // take predicted means from here
+			}
+		}
+		else if "`vartype'" == "Conts" {
+			if "`by'" == "" {
+				mi estimate: qreg `varname'
+			}
+			else {
+				mi estimate: qreg `varname' i.`by'                         // take test of difference from here
+				mi estimate, cmdok: _tab1eMargins, mod(`e(cmdline_mi)')    // take predicted medians from here
+			}
+		}
+		else if "`vartype'" == "Cat" {
+			*** Here expand on types
+		}
+		else {
+			di in r "`varname': `vartype' is not a valid vartype"
+			exit 489
+		}
+	}
+	
+	
+end
+
+
+capture program drop _inputParser
+program define _inputParser, sclass
+	
+	args inputString
+	
+	while regexm(`"`inputString'"', `"([a-zA-Z0-9\_]+)[ ]*=[ ]*\"([a-zA-Z0-9\%\.\, ]+)\""') {
+		local myvalue `=regexs(0)'
+		local varname `=regexs(1)'
+		local cond `=regexs(2)'
+		gettoken vartype varformat: cond
+		local varformat = trim("`varformat'")
+		local inputString = subinstr(`"`inputString'"', `"`myvalue'"', "", .)
+		
+		sreturn local `varname' = "`vartype' `varformat'"
+	}
+end
+
+capture program drop _tab1eMargins
+program define _tab1eMargins, eclass properties(mi)
+	
+	syntax, MODel(string)
+	
+	gettoken left right: model, parse(":")
+	local right = subinstr("`right'", ":", "", .)
+
+	`right'
+
+	if regexm("`e(cmdline)'", "i\.([a-zA-Z0-9\_]+)") {
+		local myBy `=regexs(1)'
+	}
+	
+	margins `myBy', post 
+		
+end 
+
+
+mitable1 (age = "Conts varformat") (bmi = "Cat"), by(smokes)
+
+	
+	
+		 
+		 
+exit
+
 	
 ********************************************************************************
 
@@ -60,16 +154,7 @@ mi estimate: total id, over(smokes)
 
 
 ** Contn	
-capture program drop _tab1margins
-program _tab1margins, eclass properties(mi)
-	syntax varlist, MODel(string)
-	tokenize `varlist'
-	
-	`model' `1' i.`2' 
-	margins `2', post 
-	
-		
-end 
+
 
 ** Contn
 mi estimate: regress age i.smokes  // take test of difference from here
